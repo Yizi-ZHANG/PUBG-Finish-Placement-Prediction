@@ -1,0 +1,717 @@
+---
+title: "version3"
+author: "____"
+date: "2019/12/19"
+output:
+  word_document: default
+  pdf_document: default
+---
+# Abstract
+
+PlayerUnknown's BattleGrounds (PUBG) has enjoyed massive popularity. With over 50 million copies sold, it's the fifth best selling game of all time, and has millions of active monthly players. What's the best strategy to win in PUBG? Should you sit in one spot and hide your way into victory, or do you need to be the top shot? Let's let the data do the talking!
+
+In this project, the relation between winPlacePerc and 13 features in solo mode is modeled through the linear model (LS, ridge, lasso, PCA) by data processing, parameter estimation, variable selection and quadratic terms addition. Because of the deficiency of the tests of residuals by linear regression, we propose other algorithms as well, such as KNN, SVM and neural network. Besides, we use the App---Regression Learner in MATLAB, which can assist us run the frequently-used models and choose the best one.
+
+The results of the validation set indicates that the prediction accuracy according to the linear model with quadratic terms shows best $R^2$ both on training and test set with values 0.956 and 0.922, perhaps because we have dealed well with the multicollinearity problem during our predictors' analysis.
+
+# Key Words
+
+R, MATLAB
+
+LS, Ridge, Lasso ,PCA , KNN, SVM, Neural Network, Regression Learner
+
+# Introduction
+
+Data Source: https://www.kaggle.com/c/pubg-finish-placement-prediction/data
+The PUBG Finish Placement data set used in this project comes from Kaggle published in 2018. The team at PUBG has made official game data available for the public to explore and scavenge outside of "The Blue Circle." And Kaggle collected data through the PUBG Developer API with the training set train_V2.csv and the test set test_V2.csv.
+
+In a PUBG game, up to 100 players start in each match. Players can be on teams which get ranked at the end of the game (winPlacePerc) based on how many other teams are still alive when they are eliminated. In game, players can pick up different munitions, revive downed-but-not-out (knocked) teammates, drive vehicles, run, shoot, and experience all of the consequences -- such as falling too far or running themselves over and eliminating themselves.
+
+Because of too many observations in the training set (more than 4 million), hard to run a model for a laptop. For simplification, we focus on the solo mode. Approximately 4 thousand training observations are selected and 1 thousand test observations are chosen. Because some predictors are meaningful only  We'll create models which predict players' finishing placement based on their final stats, on a scale from 1 (first place) to 0 (last place) and choose the best one.
+
+# Data Processinig and analysis
+
+## Data Importing and Missing Data Dedection
+
+```{r message=FALSE, warning=FALSE}
+library(readxl)
+library(gvlma)
+library(reshape2) 
+library(ggplot2)
+library(corrplot)
+library(car)
+library(MASS)
+library(leaps)
+library(gvlma)
+library(car)
+library(class)
+library(psych)
+library(glmnet)
+library(e1071)
+library(hydroGOF)
+library(neuralnet)
+
+setwd("D:/Collection_NUT/SUSTech_31/R/HW/Project/data")  # delete
+data <- read_excel("train_data.xlsx")
+sum(is.na(data))
+```
+
+From the result of the detection, we can conclude that there is no NA value.
+
+## Data Description
+
+### Tentative Exploration
+
+```{r warning=FALSE}
+summary(data)
+data.cor1 <- cor(data[c(1:15)])
+corrplot(corr = data.cor1, method = "circle")
+corrplot(corr = data.cor1, method = "number")
+```
+
+Unfortunately, there are question marks in the correlation plot. So there must be something wrong with our raw data.
+
+After returing back to our data, we find that the column of **swimDistance** is composed of only 0 in our sample. So we decide to delete this variable, and then we check the boxplot and correlation plot again.
+
+### Boxplot Diagram
+
+```{r}
+data=data[-c(11)]  # delete swimDistance column
+boxplot(data)
+```
+
+### Correlation Diagram
+
+```{r}
+data.cor2 <- cor(data[c(1:14)])
+corrplot(corr = data.cor2, method ="circle")
+corrplot(corr = data.cor2, method ="number")
+```
+
+# Model Building and Selection
+
+## LS
+
+First, we do the linear regression using all the variables.
+
+```{r}
+lm.fit1=lm(winPlacePerc~.,data = data)
+summary(lm.fit1)
+par(mfrow=c(2,2))
+plot(lm.fit1)
+par(mfrow=c(1,1))
+```
+
+From the summary of the lm.fit1 mpdel, we can see that quite a few coefficients are not significant.
+
+From the plot of the residuals, it is obvious that the normality of residuals is not good to assure our model.
+
+Furthermore, combined with our correlation diagram, we can see that some predictors are highly correlated, so we suspect that there is serious multicollinearity problem. So we go on to verify the multicollinearity problem before conducting further linear regression analysis.
+
+### Multicollinearity Detection and Analysis
+
+```{r}
+vif(lm.fit1)
+```
+
+Based on the principle of value 4, we can see that there are some predictors which can be interpreted by other predictors to a large extent. So we decide to delete two predictors---**kill Place** and **kills**, because they have the highest vif value. What's more, intuitively, they are both correlated with killStreaks, which "Max number of enemy players killed in a short amount of time".
+
+After deleting these two predictors, we do the linear regression again.
+
+```{r}
+lm.fit2=lm(winPlacePerc~.-killPlace-kills,data = data)
+summary(lm.fit2)
+par(mfrow=c(2,2))
+plot(lm.fit2)
+par(mfrow=c(1,1))
+```
+
+Then we do the multicollinearity testing again.
+
+```{r}
+vif(lm.fit2)
+```
+
+Until now, we can't see any multicollinearity anymore. However, some coefficients of predictors, such as **headshotKills** and **vehicleDestroys**, perhaps they need to be deleted, not taken into consideration.
+
+To further simplify the model, we use the stepwise method with "both direction" to our lm.fit2 model, which may be helpful with our non-significant problem.
+
+### Stepwise Method
+
+```{r}
+# stepwise Method
+stepAIC(lm.fit2, direction = "both")
+```
+
+```{r}
+# with the following model selected by stepwise method.
+lm.fit3=lm(formula = winPlacePerc ~ boosts + damageDealt + heals + killStreaks + 
+    maxPlace + numGroups + roadKills + walkDistance + weaponsAcquired, 
+    data = data)
+summary(lm.fit3)
+par(mfrow=c(2,2))
+plot(lm.fit3)
+par(mfrow=c(1,1))
+anova(lm.fit3,lm.fit2)
+AIC(lm.fit3,lm.fit2)
+```
+
+At the final step of anova and AIC analysis, we find that we indeed obtain a more concise model, with no decrease in adjusted $R^2$.
+
+However, from the residuals plot, it seems that there should be a quadratic term in the model. Nevertheless, we don't know which predictor's quadratic term should be included. So we decide to add all the quadratic terms, then use stepwise and all-subset method to simplify our model.
+
+### Quadratic terms
+
+```{r message=FALSE, warning=FALSE}
+# we add all the quadratic terms
+lm.fit4=lm(formula = winPlacePerc ~ boosts + damageDealt + heals + killStreaks + 
+    maxPlace + numGroups + roadKills + walkDistance + weaponsAcquired + I(boosts^2) + I(damageDealt^2) + I(heals^2)+
+    I(killStreaks^2) + I(maxPlace^2) + I(numGroups^2) + I(roadKills^2) + I(walkDistance^2) + I(weaponsAcquired^2), 
+    data = data)
+summary(lm.fit4)
+par(mfrow=c(2,2))
+plot(lm.fit4)
+par(mfrow=c(1,1))
+```
+
+Obviously, taking the quadratic terms into account, residuals are quite nice, but some coefficients are not significant.
+
+```{r}
+residplot <- function(fit, nbreaks=10) {
+               z <- rstandard(fit)
+               hist(z, breaks=nbreaks, freq=FALSE, 
+                    xlab="Standardized Residual", 
+                    main="Distribution of Errors")
+               rug(jitter(z), col="brown")
+               curve(dnorm(x, mean=mean(z), sd=sd(z)), 
+                     add=TRUE, col="blue", lwd=2)
+               lines(density(z)$x, density(z)$y, 
+                     col="red", lwd=2, lty=2)
+               legend("topright", 
+                      legend = c( "Normal Curve", "Kernel Density Curve"), 
+                      lty=1:2, col=c("blue","red"), cex=.7)
+        }
+```
+
+#### Stepwise Method
+
+```{r}
+#stepwise method
+stepAIC(lm.fit4)
+```
+
+```{r message=FALSE, warning=FALSE}
+# Stepwise with the following result
+lm.fit5=lm(formula = winPlacePerc ~ boosts + damageDealt + heals + maxPlace + 
+    numGroups + roadKills + walkDistance + weaponsAcquired + 
+    I(boosts^2) + I(damageDealt^2) + I(maxPlace^2) + I(numGroups^2) + 
+    I(walkDistance^2) + I(weaponsAcquired^2), data = data)
+summary(lm.fit5)
+par(mfrow=c(2,2))
+plot(lm.fit5)
+par(mfrow=c(1,1))
+
+# Model diagnostic
+residplot(lm.fit5)
+ks.test(rstandard(lm.fit5),"pnorm",mean =0 ,sd =1)
+durbinWatsonTest(lm.fit5)
+ncvTest(lm.fit5)
+crPlots(lm.fit5)
+```
+
+After stepwise process, we can see that only a few coefficients are not significant.
+When we do the model diagnose, the results are not so good but not so bad as well.
+
+For the test of **normality**, the p-value of ks.test is 0.4831, very close to 0.05. However, from the histograms of residuals, it shows that the difference is little. For the test of **independence**, the p-value is 0.01. For the performance of **linearity**, the model fits very well. For the test of **homoscedasticity**, the result shows bad condition.
+
+#### All-Subset Method
+
+```{r}
+# all-subset method
+leaps <- regsubsets(winPlacePerc ~ boosts + damageDealt + heals + killStreaks + 
+    maxPlace + numGroups + roadKills + walkDistance + weaponsAcquired + I(boosts^2) + I(damageDealt^2) + 
+    I(heals^2) + I(killStreaks^2) + 
+    I(maxPlace^2) + I(numGroups^2) + I(roadKills^2) + I(walkDistance^2) + I(weaponsAcquired^2), 
+    data = data, nbest = 4)
+plot(leaps, scale="adjr2")
+```
+
+```{r message=FALSE, warning=FALSE}
+# With the following result
+lm.fit6=lm(formula = winPlacePerc ~ boosts + damageDealt + walkDistance + weaponsAcquired +
+    I(maxPlace^2) + I(numGroups^2) + I(walkDistance^2) + I(weaponsAcquired^2), 
+    data = data)
+summary(lm.fit6)
+par(mfrow=c(2,2))
+plot(lm.fit6)
+par(mfrow=c(1,1))
+
+# Model diagnostic
+residplot(lm.fit6)
+ks.test(rstandard(lm.fit6), "pnorm", mean = 0, sd = 1)
+durbinWatsonTest(lm.fit6)
+ncvTest(lm.fit6)
+crPlots(lm.fit6)
+
+```
+
+Compared with the result of stepwise regression, there is an noticeable advantage---the model is much more concise with similar $R^2$. And the result of model diagnostic is similar to that of stepwise regression.
+
+As a consequence of the non-significant of the intercept term, we try to delete it and see the result.
+
+#### Intercept Deleting
+
+```{r message=FALSE, warning=FALSE}
+# delete the intercept term
+lm.fit7=lm(formula = winPlacePerc ~ boosts + damageDealt + walkDistance + weaponsAcquired + 
+    I(maxPlace^2) + I(numGroups^2) + I(walkDistance^2) + I(weaponsAcquired^2) - 1, 
+    data = data)
+summary(lm.fit7)
+par(mfrow=c(2,2))
+plot(lm.fit7)
+par(mfrow=c(1,1))
+
+# Model diagnostic
+ks.test(rstandard(lm.fit7),"pnorm",mean =0 ,sd =1)
+residplot(lm.fit7)
+durbinWatsonTest(lm.fit7)
+ncvTest(lm.fit7)
+crPlots(lm.fit7)
+
+# test of the necessary to delete the intercept term
+anova(lm.fit7,lm.fit6)
+AIC(lm.fit7,lm.fit6)
+```
+
+After deleting the intercept term, the resulting $R^2$ shows evident improvement---from 0.86 to 0.95, with little change in model diagnostic part. Considering the anova and AIC analysiis between lm.fit7 and lm.fit6, the result suggests us ignoring the intercept term.
+According to Occam's Razor, "Do not multiply entities beyond necessity", so lm.fit7 is chosen as our final model in the linear regression part.
+
+So why can we choose to delete the intercept term?
+
+I think it can be interpreted intuitively. If all predictors are 0, meaning no kills, no damage, no weapons, no walkDistance---he was killed immediately when he entered the game. As a consequence, he was the first to be weeded, the winPlacePerc is 0.
+
+For the result of model diagnostic, some tests are not so good. From my perspective, too many observations to fit, and it is ordinary to have some disadvantages of the residuals, because of only a few predictors.
+
+Next we will do the outlier and influence point detection.
+
+### Outlier and Influence Points Analysis
+
+```{r}
+outlierTest(lm.fit7)
+influencePlot(lm.fit7)
+```
+
+The test of unusual points shows that there is no large outlier, but with influence points.
+Here we take NO.2326 and NO.2215 as example.
+
+After checking the data, we find that, NO.2326, his walkDistance doesn't coincidence with its weapons. Intuitively, the more distance you walk, the more weapons you obtain, which means positive correlation. But compard with the competitors of the same level, he attained many weapons with only a few walkDistance, and that's why the observation was screened out.
+
+As for NO.2215, all of his indicators are good, but his score-place is very bad. Perhaps many of his competitors are excellent, and that's why the observation was screened out.
+We didn't delete any observation and then fit the model again, because the action of deleting observations should be careful. Our model is pretty good enough with large $R^2$ and few influence points. We should use the model to match the data, instead of doing the opposite.
+
+### Validation Set Testing
+
+We have another 997 observations to construct a test set, let's use lm.fit7 to predict in the test set and calculate the $R^2$.
+
+```{r message=FALSE, warning=FALSE}
+setwd("D:/Collection_NUT/SUSTech_31/R/HW/Project/data")  # delete
+test_data <- read_excel("test_data.xlsx")
+test_data <- as.data.frame(test_data)
+test_pre <- predict(lm.fit7, newdata=test_data[-14])  # predict percentage
+mean_test=mean(test_data$winPlacePerc)
+SSR_test=sum((test_pre-mean_test)^2)
+SST_test=sum((test_data$winPlacePerc-mean_test)^2)
+paste("The R^2 of the linear model in the test set is", SSR_test/SST_test )
+```
+
+As we can see, in test data set, $R^2$ is above than 0.922, which shows the basic linear model prediction seems good enough, let's see what will happen in other models.
+
+## PCA regression
+
+In the process of establishing multiple linear regression model, we often choose **least square method (OLS)** to solve the regression coefficient.However, when multicollinearity exists, OLS estimation is not ideal, and even symbols that are inconsistent with the actual situation appear, so that it is difficult to give a realistic explanation to the established regression equation, resulting in chaotic regression results. To this end, we use **Principal Component Regression (PCR)**, a multivariate Regression analysis method, which aims to solve the problem of multicollinearity among independent variables.
+
+First, let's figure out how many principal components we need. By **parallel analysis**, using the function **fa.parallel()**, we can see that choosing four principal components can hold most of the information.
+
+```{r}
+#data import
+setwd("D:/Collection_NUT/SUSTech_31/R/HW/Project/data")  # delete
+data = read_excel("train_data.xlsx")
+data = data[-11]
+data_test = read_excel("test_data.xlsx")
+#PCA regression
+fa.parallel(scale(data[,1:13]), fa="pc", n.iter=100, show.legend=FALSE, main="Screen plot with parallel analysis")
+
+my_data <- princomp(scale(data[,1:13]), data=data, cor=T)
+my_data_test <- princomp(scale(data_test[,1:13]), data=data_test, cor=T)
+# my_data <- princomp(~boosts + damageDealt + headshotKills + heals + killPlace + kills + killStreaks + maxPlace + numGroups + roadKills + vehicleDestroys + walkDistance + weaponsAcquired, data=data, cor=T)
+#biplot(my_data,choices = 1:2)
+summary(my_data,loadings = TRUE)
+```
+
+Output from the above results, we can see that the model on the basis of the original data generated four principal components, the four principal components explained 70% of the original data variance. This also means that after dealing with the dimension reduction, the original data has little loss of data information.
+
+```{r}
+# PCR model used for prediction
+my_data_pre <- predict(my_data)
+my_data_pre_test <- predict(my_data_test)
+# Add three columns to the original dataset a1,a2,a3 & a4
+data$a1 <- my_data_pre[,1]
+data$a2 <- my_data_pre[,2]
+data$a3 <- my_data_pre[,3]
+data$a4 <- my_data_pre[,4]
+fit1 <- lm(winPlacePerc~a1+a2+a3+a4,data = data)
+summary(fit1)
+
+data_test$a1 <- my_data_pre_test[,1]
+data_test$a2 <- my_data_pre_test[,2]
+data_test$a3 <- my_data_pre_test[,3]
+data_test$a4 <- my_data_pre_test[,4]
+fit2 <- lm(winPlacePerc~a1+a2+a3+a4,data = data_test)
+summary(fit2)
+
+par(mfrow=c(2,2))
+plot(fit1)
+par(mfrow=c(1,1))
+```
+
+It can be seen from the above table that the four principal components of the newly established model have significant influence on the model. Therefore, in this case, the principal component of the original data was reduced in dimension, and the four principal components were selected to re-establish the regression model, which not only excluded multicollinearity, but also effectively explained the relationship between independent variables and dependent variables.
+
+Next, we use another two regression methods: **Ridge regression** and **Lasso regression** and compare the results of them with that of **PCR**.
+
+## Ridge regression
+
+```{r}
+#ridge regression
+ridg1 <- cv.glmnet(x=model.matrix(~.,as.data.frame(scale(data[,1:13]))),
+                   y=data$winPlacePerc,
+                   family = 'gaussian',
+                   alpha = 0,
+                   # nfolds = 10,
+                   nlambda = 50)
+plot(ridg1)
+
+bestlam1=ridg1$lambda.min
+bestlam2=ridg1$lambda.1se
+pred.ridg <- predict(ridg1,s=c(bestlam1,bestlam2),
+             newx=model.matrix(~.,as.data.frame(scale(data_test[,1:13]))))
+mean((pred.ridg[,1]-data_test$winPlacePerc)^2)#whenlambda=lambda.min
+mean((pred.ridg[,2]-data_test$winPlacePerc)^2)#whenlambda=lambda.lse
+```
+
+```{r}
+# get the 2 corresponging independent variables coefficients of 2 lambda values
+predict(ridg1,s=c(bestlam1,bestlam2),
+        newx=model.matrix(~.,as.data.frame(scale(data[,1:13]))),
+        type="coefficients")
+```
+
+## Lasso regression
+
+```{r}
+#lasso regression
+laso2 <- cv.glmnet(x=model.matrix(~.,as.data.frame(scale(data[,1:13]))),
+                   y=data$winPlacePerc,
+                   family = 'gaussian',
+                   alpha = 1,
+                   # nfolds = 10,
+                   nlambda = 50)
+plot(laso2)
+
+bestlam1_la=laso2$lambda.min
+bestlam2_la=laso2$lambda.1se
+pred.laso <- predict(laso2,s=c(bestlam1_la,bestlam2_la),
+             newx=model.matrix(~.,as.data.frame(scale(data_test[,1:13]))))
+mean((pred.laso[,1]-data_test$winPlacePerc)^2)#whenlambda=lambda.min
+mean((pred.laso[,2]-data_test$winPlacePerc)^2)#whenlambda=lambda.lse
+# lambda.min 误差最小, lambda.lse 性能优良,自变量个数最少
+```
+
+From the output, we find that lambda.min has the least error and lambda.lse has good performance, and the number of independent variables is the least.
+
+```{r}
+# get the 2 corresponging independent variables coefficients of 2 lambda values
+predict(laso2,s=c(bestlam1_la,bestlam2_la),
+        newx=model.matrix(~.,as.data.frame(scale(data[,1:13]))),
+        type="coefficients")
+```
+
+Finally, we compare the $R^2$ squares of three models.
+
+```{r}
+#模型之间的比较
+# rmse.laso <- min(sqrt(mean((pred.laso[,1]-data$winPlacePerc)^2)),
+#                  sqrt(mean((pred.laso[,2]-data$winPlacePerc)^2)))
+# rmse.laso
+# 
+# rmse.ridg <- min(sqrt(mean((pred.ridg[,1]-data$winPlacePerc)^2)),
+#                  sqrt(mean((pred.ridg[,2]-data$winPlacePerc)^2)))
+# rmse.ridg
+# 
+# rmse.lm <- sqrt(mean(resid(fit)^2))
+# rmse.lm
+SST_rid <- sum((data_test$winPlacePerc-mean(data_test$winPlacePerc))^2)
+SSE_rid <- sum((pred.ridg[,1]-data_test$winPlacePerc)^2)
+R2_rid <- 1 - SSE_rid/SST_rid
+R2_rid
+
+SST_las <- sum((data_test$winPlacePerc-mean(data_test$winPlacePerc))^2)
+SSE_las <- sum((pred.laso[,1]-data_test$winPlacePerc)^2)
+R2_las <- 1 - SSE_las/SST_las
+R2_las
+```
+
+## KNN
+
+### Training set for KNN
+
+KNN is a discriminative algorithm since it models the conditional probability of a sample belonging to a given class.
+Frequently, KNN is used for classification. Nevertheless, it can be used for regression as well.
+
+There is not a fixed N value which is used for choosing the nearest points. Because:
+
+(1) Small values for K can be noisy and subject to the effects of outliers.
+
+(2) Larger values of K will have smoother decision boundaries which mean lower variance but increased bias.
+
+Conventionally, $\sqrt{n}$, where n is the total training observations. So here we train the model with N=10, 20......100. respectively. And then choose the best N using $R^2$ and the decision rule.
+
+Because each model needs about a few minutes to run, so here I only list the final result---N=10 rather than run it again.
+
+And the corresponding $R^2$ for N=10, 20......100 is 0.821, 0.792, 0.772, 0.756, 0.743, 0.73, 0.721, 0.711, 0.702, 0.694 respectively.
+```{r}
+# matrix=as.matrix(data[-14])
+# scale=scale(matrix)
+# mean=mean(data$winPlacePerc)
+# 
+# #  KNN for N=10
+# predict1=matrix(0,nrow=3374,ncol=1)
+# 
+# for (j in 1:3374) {
+# difference=matrix(0,nrow=1,ncol=3374)
+#  for (i in 1:3374) {
+#    difference[1,i]=(scale[i,1]-scale[j,1])^2+(scale[i,2]-scale[j,2])^2+(scale[i,3]-scale[j,3])^2+(scale[i,4]-scale[j,4])^2+(scale[i,5]-scale[j,5])^2+(scale[i,6]-scale[j,6])^2+(scale[i,7]-scale[j,7])^2+(scale[i,8]-scale[j,8])^2+(scale[i,9]-scale[j,9])^2+(scale[i,10]-scale[j,10])^2+(scale[i,11]-scale[j,11])^2+(scale[i,12]-scale[j,12])^2+(scale[i,13]-scale[j,13])^2
+# 
+#   }
+#   orderdiff_scale=order(difference[1,],decreasing=FALSE)
+#   orderdiff1_scale=as.vector(orderdiff_scale[1:11])
+#   total=0
+#   for(k in orderdiff1_scale[-1]){
+#     total=total+as.numeric(data[k,14])
+#   }
+#   
+#     predict1[j,1]=total/10
+# }
+# 
+# residuals1=data[,14]-predict1
+# plot(residuals1)
+# SSR1=sum((predict1-mean)^2)
+# SST=sum((data[,14]-mean)^2)
+# MSE1=sum(residuals1^2)/3374
+
+```
+
+### Test set for the KNN algorithm
+
+```{r}
+# data_test <- read_excel("test_data.xlsx")
+# matrix_test=as.matrix(data_test[-14])
+# scale_test=scale(matrix_test)
+# mean_test=mean(data_test$winPlacePerc)
+# 
+# ## Test set for N=10
+# predict_test=matrix(0,nrow=997,ncol=1)
+# 
+# for (j in 1:997) {
+# difference_test=matrix(0,nrow=1,ncol=3374)
+#  for (i in 1:3374) {
+#    difference_test[1,i]=(scale[i,1]-scale_test[j,1])^2+(scale[i,2]-scale_test[j,2])^2+(scale[i,3]-scale_test[j,3])^2+(scale[i,4]-scale_test[j,4])^2+(scale[i,5]-scale_test[j,5])^2+(scale[i,6]-scale_test[j,6])^2+(scale[i,7]-scale_test[j,7])^2+(scale[i,8]-scale_test[j,8])^2+(scale[i,9]-scale_test[j,9])^2+(scale[i,10]-scale_test[j,10])^2+(scale[i,11]-scale_test[j,11])^2+(scale[i,12]-scale_test[j,12])^2+(scale[i,13]-scale_test[j,13])^2
+# 
+#   }
+#   orderdiff_test=order(difference_test[1,],decreasing=FALSE)
+#   orderdiff1_test=as.vector(orderdiff_test[1:11])
+#   total=0
+#   for(k in orderdiff1_test[-1]){
+#     total=total+as.numeric(data[k,14])
+#   }
+# 
+#     predict_test[j,1]=total/10
+# }
+
+# residuals_test_KNN=data_test[,14]-predict_test
+# SSR_test_KNN=sum((predict_test-mean_test)^2)
+# SST_test_KNN=sum((data_test[,14]-mean_test)^2)
+# 
+# paste("The R^2 of the KNN model in the test set is", SSR_test_KNN/SST_test_KNN )
+```
+The R^2 of the KNN model in the test set is 0.848
+
+## SVM model
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE, warning=FALSE}
+setwd("D:/Collection_NUT/SUSTech_31/R/HW/Project/data")  # delete
+data = read_excel("train_data.xlsx")
+data =  subset(data, select = -swimDistance )
+```
+
+### Fit SVM model
+
+```{r message=FALSE, warning=FALSE}
+# Regression with SVM
+modelsvm = svm(winPlacePerc~.,data)
+
+# Predict using SVM regression
+predYsvm = predict(modelsvm, data)
+```
+
+```{r}
+# Calculate RMSE 
+RMSEsvm = rmse(predYsvm,data$winPlacePerc)
+```
+
+Tuning SVR model by varying values of maximum allowable error and cost parameter:
+
+```{r}
+# Tune the SVM model
+# OptModelsvm=tune(svm, winPlacePerc~., data=data, ranges=list(elsilon=seq(0,1,0.2), cost=1:5))
+
+# Print optimum value of parameters
+# print(OptModelsvm)
+
+# Plot the perfrormance of SVM Regression model
+# plot(OptModelsvm)
+```
+
+
+```{r}
+## Select the best model out of  trained models and compute RMSE
+
+# Find out the best model
+BstModel=svm(winPlacePerc~.,data=data, cost = 2, epsilon = 0.1)#OptModelsvm$best.model
+
+# Predict Y using best model
+PredYBst=predict(BstModel,data)
+
+# Calculate RMSE of the best model 
+MSEBst=mse(PredYBst,data$winPlacePerc)
+```
+
+```{r}
+Cal.R2 = function(y,PredYBst){
+  # R2
+  SST = sum((y-mean(y))^2)
+  SSE = sum((y-PredYBst)^2)
+  SSR = SST - SSE
+  R2 = SSR/SST
+  return(R2)
+}
+```
+
+
+```{r}
+## details about best model
+BstModel
+
+# to train best model, simply call:
+# svm(winPlacePerc~.,data=data, cost = 2, epsilon = 0.1)
+```
+
+After training there are 1663 support vectors out of 3374 data points. 
+
+```{r}
+print(MSEBst)
+print(Cal.R2(data$winPlacePerc,PredYBst))
+```
+
+This model explained about 96.2% variance of data.
+
+
+```{r}
+## Calculate parameters of the Best SVR model
+
+# Find value of W
+W = t(BstModel$coefs) %*% BstModel$SV
+
+# Find value of b
+b = BstModel$rho
+```
+
+### Model Testing
+
+```{r message=FALSE, warning=FALSE}
+# import test data
+setwd("D:/Collection_NUT/SUSTech_31/R/HW/Project/data")  # delete
+TstData = read_excel("test_data.xlsx")
+```
+
+```{r}
+y.test.truth = TstData$winPlacePerc
+y.test.pred = predict(BstModel,TstData)
+```
+
+R square:
+
+```{r}
+Cal.R2(y.test.truth, y.test.pred)
+```
+this means about 89.45% variability has been explained.
+
+let's see mse:
+```{r}
+mean((y.test.truth-y.test.pred)^2)
+```
+
+## Neural Network
+
+```{r message=FALSE, warning=FALSE}
+setwd("D:/Collection_NUT/SUSTech_31/R/HW/Project/data")  # delete
+data = read_excel("train_data.xlsx")
+data = subset(data, select = -swimDistance )
+```
+
+```{r}
+# fit neural network
+# set.seed(2)
+# NN = neuralnet(winPlacePerc~., data, hidden = c(5) , linear.output = T )
+# 
+# # plot neural network
+# plot(NN)
+```
+
+```{r}
+# PredYBst=predict(NN,data)
+```
+
+```{r}
+Cal.R2 = function(y,PredYBst){
+  # R2
+  SST = sum((y-mean(y))^2)
+  SSE = sum((y-PredYBst)^2)
+  SSR = SST - SSE
+  R2 = SSR/SST
+  return(R2)
+}
+```
+
+```{r}
+Cal.R2(data$winPlacePerc,PredYBst)
+```
+
+
+```{r}
+# import test data
+setwd("D:/Collection_NUT/SUSTech_31/R/HW/Project/data")  # delete
+TstData = read_excel("test_data.xlsx")
+```
+
+```{r}
+# y.test.truth = TstData$winPlacePerc
+# y.test.pred = predict(NN,TstData)
+```
+
+```{r}
+# Cal.R2(y.test.truth, y.test.pred)
+```
